@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #0f0f1a; overflow: hidden; }
+    #renderCanvas { width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script>
+    const canvas = document.getElementById('renderCanvas')
+    const engine = new BABYLON.Engine(canvas, true)
+
+    const createScene = function() {
+      const scene = new BABYLON.Scene(engine)
+      scene.clearColor = new BABYLON.Color4(0.06, 0.06, 0.1, 1)
+
+      const camera = new BABYLON.ArcRotateCamera('cam', -Math.PI / 2, Math.PI / 2.4, 3.5, new BABYLON.Vector3(0, 1, 0), scene)
+      camera.attachControl(canvas, true)
+      camera.lowerRadiusLimit = 1.5
+      camera.upperRadiusLimit = 6
+
+      const hemi = new BABYLON.HemisphericLight('light', new BABYLON.Vector3(0, 1, 0), scene)
+      hemi.intensity = 1.2
+      const dirLight = new BABYLON.DirectionalLight('dir', new BABYLON.Vector3(-1, -2, -1), scene)
+      dirLight.intensity = 0.8
+
+      let morphTargets = []
+      let isTalking = false
+      let talkInterval = null
+      let avatarRoot = null
+      let moveInterval = null
+
+      BABYLON.SceneLoader.ImportMesh('', '', 'avatar.glb', scene, function(meshes, ps, skeletons, agroups) {
+        console.log('Avatar loaded!')
+        avatarRoot = meshes[0]
+        avatarRoot.scaling = new BABYLON.Vector3(1.2, 1.2, 1.2)
+
+        // Log all bones
+        if (skeletons.length > 0) {
+          const bones = skeletons[0].bones
+          console.log('Bones:', bones.map(b => b.name))
+        }
+
+        // Find mouth morph targets
+        meshes.forEach(mesh => {
+          if (mesh.morphTargetManager) {
+            const manager = mesh.morphTargetManager
+            for (let i = 0; i < manager.numTargets; i++) {
+              const target = manager.getTarget(i)
+              if (
+                target.name.toLowerCase().includes('mouth') ||
+                target.name.toLowerCase().includes('open') ||
+                target.name.toLowerCase().includes('jaw') ||
+                target.name === 'viseme_aa' ||
+                target.name === 'viseme_O'
+              ) {
+                morphTargets.push(target)
+              }
+            }
+          }
+        })
+
+        // Play built-in animations if any
+        if (agroups.length > 0) {
+          console.log('Built-in anims:', agroups.map(a => a.name))
+          agroups[0].play(true)
+        }
+      })
+
+      // ---- Lip sync ----
+      window.startTalking = function() {
+        if (talkInterval) return
+        isTalking = true
+        let phase = 0
+        talkInterval = setInterval(() => {
+          if (!isTalking) {
+            morphTargets.forEach(t => t.influence = 0)
+            clearInterval(talkInterval)
+            talkInterval = null
+            return
+          }
+          phase += 0.25
+          const influence = Math.abs(Math.sin(phase)) * 0.9
+          morphTargets.forEach(t => t.influence = influence)
+        }, 60)
+      }
+
+      window.stopTalking = function() {
+        isTalking = false
+      }
+
+      // ---- Dance using root movement ----
+      window.playAnimation = function(name) {
+        if (moveInterval) {
+          clearInterval(moveInterval)
+          moveInterval = null
+        }
+        if (!avatarRoot) return
+
+        let phase = 0
+
+        if (name === 'dance') {
+          console.log('Dancing!')
+          moveInterval = setInterval(() => {
+            phase += 0.1
+            // Bounce up and down
+            avatarRoot.position.y = Math.abs(Math.sin(phase)) * 0.15
+            // Sway left and right
+            avatarRoot.rotation.z = Math.sin(phase) * 0.08
+            // Slight forward/back lean
+            avatarRoot.rotation.x = Math.sin(phase * 0.5) * 0.05
+          }, 30)
+
+        } else if (name === 'walk') {
+          console.log('Walking!')
+          moveInterval = setInterval(() => {
+            phase += 0.08
+            avatarRoot.position.y = Math.abs(Math.sin(phase * 2)) * 0.05
+            avatarRoot.rotation.z = Math.sin(phase) * 0.04
+          }, 30)
+
+        } else if (name === 'wave') {
+          console.log('Waving!')
+          moveInterval = setInterval(() => {
+            phase += 0.15
+            avatarRoot.rotation.z = Math.sin(phase) * 0.12
+            if (phase > Math.PI * 6) {
+              clearInterval(moveInterval)
+              moveInterval = null
+              avatarRoot.rotation.z = 0
+            }
+          }, 30)
+        }
+      }
+
+      window.stopAnimation = function() {
+        if (moveInterval) {
+          clearInterval(moveInterval)
+          moveInterval = null
+        }
+        if (avatarRoot) {
+          avatarRoot.position.y = 0
+          avatarRoot.rotation.z = 0
+          avatarRoot.rotation.x = 0
+        }
+      }
+
+      return scene
+    }
+
+    const scene = createScene()
+    engine.runRenderLoop(() => scene.render())
+    window.addEventListener('resize', () => engine.resize())
+  </script>
+</body>
+</html>
